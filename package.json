@@ -1,0 +1,17 @@
+{
+  "name": "stfcoin",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "test": "truffle test"
+  },
+  "keywords": [],
+  "author": "Dariusz Myśliwiec <mysliwiec@protonmail.com>",
+  "license": "ISC",
+  "dependencies": {
+    "@openzeppelin/contracts-ethereum-package": "^2.2.3",
+    "@openzeppelin/upgrades": "^2.5.3",
+    "truffle": "^5.0.35"
+  }
+}
