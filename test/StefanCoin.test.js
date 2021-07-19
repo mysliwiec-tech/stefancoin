@@ -1,173 +1,124 @@
-const StefanCoin = artifacts.require('StefanCoin');
+const { expect } = require("chai");
+const { ethers } = require("hardhat");
 
-contract('StefanCoin', async ([alice, bob]) => {
-    let instance;
+describe("StefanCoin", () => {
+    let Token, address1, address2;
 
     beforeEach(async () => {
-        instance = await StefanCoin.new();
-        await instance.initialize("StefanCoin", "STF", 0, 3);
-    });
+        const StefanCoin = await hre.ethers.getContractFactory("StefanCoin");
+        Token = await StefanCoin.deploy();
+        await Token.deployed();
 
-    describe("Fundamentals", async () => {
-        it("Deploying contract", async () => {
-            const name = await instance.name();
-            assert.equal(name.valueOf(), "StefanCoin");
-        });
-    
-        it("New day resets virtuals", async () => {
-            const virtuals = await instance.remainingVirtuals(alice);
-            assert.equal(virtuals.toNumber(), 3);
-        });
-        
-        it("Increasing totalSupply", async () => {
-            await instance.transfer(bob, 1, {from: alice})
-            const total = await instance.totalSupply();
-            assert.equal(total.toNumber(), 1);
-        });
+        [address1, address2] = await hre.ethers.getSigners();
     });
+    it("Spending virtuals", async () => {
+        await Token.transfer(address2.address, 1, {from: address1.address});
+        let virtuals = await Token.remainingVirtuals(address1.address);
+        expect(virtuals.toNumber()).to.equal(2);
+    });
+    it("Receiving real by sending virtuals", async () => {
+        await Token.transfer(address2.address, 1, {from: address1.address});
+        let virtuals2 = await Token.remainingVirtuals(address2.address);
+        let real2 = await Token.balanceOf(address2.address)
 
+        expect(virtuals2.toNumber()).to.equal(3);
+        expect(real2.toNumber()).to.equal(1);
+    });
+    it("Spending virtuals", async () => {
+        await Token.transfer(address2.address, 1, {from: address1.address});
+        let virtuals1 = await Token.remainingVirtuals(address1.address);
+        let real1 = await Token.balanceOf(address1.address)
+
+        expect(virtuals1.toNumber()).to.equal(2);
+    });
+    it("New day resets virtuals", async () => {
+        await Token.transfer(address2.address, 1, {from: address1.address});
+        await ethers.provider.send('evm_increaseTime', [60*60*24]);
+        await ethers.provider.send("evm_mine");
+        let virtuals1 = await Token.remainingVirtuals(address1.address);
+
+        expect(virtuals1.toNumber()).to.equal(3);
+    });
     describe("Safety-fuses", async () => {
+        let Token, address1, address2, address3;
+
+        beforeEach(async () => {
+            const StefanCoin = await hre.ethers.getContractFactory("StefanCoin");
+            Token = await StefanCoin.deploy();
+            await Token.deployed();
+
+            [address1, address2, address3] = await hre.ethers.getSigners();
+        });
         it("Overspending protection (virtuals) - can't spend 4 virtuals if 0 (3)", async () => {
-            let transfered = false;
-            try {
-                await instance.transfer(bob, 4, {from: alice});
-                transfered = true;
-            } catch {
-                transfered = false;
-            }
-            assert.equal(transfered, false);
+            await expect(Token.transfer(address2.address, 4, {from: address1.address})).to.be.revertedWith("No enough funds");
         });
-    
         it("Overspending protection (reals) - can't spend 7 reals if 6 (0)", async () => {
-            let transfered = false;
-            await instance.transfer(bob, 3, {from: alice});
-            await instance.transfer(alice, 6, {from: bob});
+            await Token.transfer(address2.address, 3);
 
-            try {
-                await instance.transfer(bob, 7, {from: alice});
-                transfered = true;
-            } catch {
-                transfered = false;
-            }
-            assert.equal(transfered, false);
+            const asAddress2 = Token.connect(address2);
+            await asAddress2.transfer(address1.address, 6);
+            await expect(Token.transfer(address2.address, 7)).to.be.revertedWith("No enough funds");
         });
-
         it("Prevent sending money to yourself! LOL", async () => {
-            let transfered = false;
-            try {
-                await instance.transfer(alice, 3, {from: alice});
-                transfered = true;
-            } catch {
-                transfered = false;
-            }
-            assert.equal(transfered, false);
+            await expect(Token.transfer(address1.address, 1, {from: address1.address})).to.be.revertedWith("Cannot send to yourself! LOL");
         })
     });
-
     describe("Transfers (sending)", async () => {
+        beforeEach(async () => {
+            const StefanCoin = await hre.ethers.getContractFactory("StefanCoin");
+            Token = await StefanCoin.deploy();
+            await Token.deployed();
+
+            [address1, address2, address3] = await hre.ethers.getSigners();
+        });
         it("Before 0 (3) -> send 3 -> After 0 (0)", async () => {
-            await instance.transfer(bob, 3, {from: alice});
-            const virtuals = await instance.remainingVirtuals(alice);
-            assert.equal(virtuals.toNumber(), 0);
-        });
+            await Token.transfer(address2.address, 3);
 
+            const virtuals = await Token.remainingVirtuals(address1.address);
+            expect(virtuals.toNumber()).to.equal(0);
+        });
         it("Before 6 (0) -> send 6 -> After 0 (0)", async () => {
-            await instance.transfer(alice, 3, {from: bob});
-            await instance.transfer(bob, 6, {from: alice});
-            const balance = await instance.balanceOf(alice);
-            assert.equal(balance.toNumber(), 0);
-        });
+            const asAddress2 = Token.connect(address2);
+            await asAddress2.transfer(address1.address, 3);
 
+            await Token.transfer(address2.address, 6, {from: address1.address});
+            const balance = await Token.balanceOf(address1.address);
+            expect(balance.toNumber()).to.equal(0);
+        });
         it("Before 3 (3) -> send 5 -> After 1 (0)", async () => {
-            await instance.transfer(alice, 3, {from: bob});
-            await instance.transfer(bob, 5, {from: alice});
-            const balance = await instance.balanceOf(alice);
-            assert.equal(balance.toNumber(), 1);
+            const asAddress2 = Token.connect(address2);
+            await asAddress2.transfer(address1.address, 3);
+            await Token.transfer(address2.address, 5);
+            const balance = await Token.balanceOf(address1.address);
+            expect(balance.toNumber()).to.equal(1);
         });  
     });
-    
     describe("Transfers (reciving)", async () => {
+        beforeEach(async () => {
+            const StefanCoin = await hre.ethers.getContractFactory("StefanCoin");
+            Token = await StefanCoin.deploy();
+            await Token.deployed();
+
+            [address1, address2, address3] = await hre.ethers.getSigners();
+        });
         it("Real coins were added (virtual -> real)", async () => {
-            await instance.transfer(bob, 1, {from: alice});
-            const balance = await instance.balanceOf(bob);
-            assert.equal(balance.toNumber(), 1);
+            await Token.transfer(address2.address, 1);
+            const balance = await Token.balanceOf(address2.address);
+            expect(balance.toNumber()).to.equal(1);
         });
-        
         it("Real coins were added (real -> real)", async () => {
-            await instance.transfer(bob, 2, {from: alice}); // Alice has 0 (1)
-            await instance.transfer(alice, 1, {from: bob});
-            const balance = await instance.balanceOf(alice);
-            assert.equal(balance.toNumber(), 1);
+            const asAddress2 = Token.connect(address2);
+            await Token.transfer(address2.address, 2); // Alice has 0 (1)
+            await asAddress2.transfer(address1.address, 1);
+            const balance = await Token.balanceOf(address1.address);
+            expect(balance.toNumber()).to.equal(1);
         });
-
         it("Real coins were added (virtual + real -> real)", async () => {
-            await instance.transfer(bob, 2, {from: alice});
-            await instance.transfer(alice, 4, {from: bob});
-            const balance = await instance.balanceOf(alice);
-            assert.equal(balance.toNumber(), 4);
-        });
-    });
-
-    describe("Register user", async () => {
-        it("Register new user", async () => {
-            await instance.registerUser("U178VB2A0", alice);
-            let userAddress = await instance.getUserAddress("U178VB2A0");
-            assert.equal(userAddress.valueOf(), alice);
-        });
-
-        it("Change user's address", async () => {
-            await instance.registerUser("U178VB2A0", alice);
-            await instance.registerUser("U178VB2A0", bob, {from: alice});
-            let userAddress = await instance.getUserAddress("U178VB2A0");
-            assert.equal(userAddress.valueOf(), bob);
-        });
-
-        it("Different user reregister not his account", async () => {
-            await instance.registerUser("U178VB2A0", alice);
-            let success = false;
-            try {
-                await instance.registerUser("U178VB2A0", bob, {from: bob});
-                success = true;
-            } catch {
-                success = false;
-            }
-            assert.equal(success, false);
-        })
-    });
-
-    describe("Named transfers", async () => {
-        it("Using name as a reciver", async() => {
-            await instance.registerUser("U178VB2A0", alice);
-            await instance.registerUser("U178VB2A1", bob);
-            await instance.transferToUser("U178VB2A1", "U178VB2A0", 1, {from: bob});
-            const balance = await instance.balanceOf(alice);
-            assert.equal(balance.toNumber(), 1);
-        });
-
-        it("Don't send when sender's address does not match sender's UserID", async() => {
-            let success = false;
-            await instance.registerUser("U178VB2A0", alice);
-            await instance.registerUser("U178VB2A1", bob);
-            try {
-                await instance.transferToUser("U178VB2A0", "U178VB2A1", 1, {from: bob});
-                success = true;
-            } catch {
-                success = false;
-            }
-            assert.equal(success, false);
-        });
-
-        it("Don't send when reciver's address does not match reciver's UserID", async() => {
-            let success = false;
-            await instance.registerUser("U178VB2A0", alice);
-            await instance.registerUser("U178VB2A1", bob);
-            try {
-                await instance.transferToUser("U178VB2A1", "U178VB2A2", 1, {from: bob});
-                success = true;
-            } catch {
-                success = false;
-            }
-            assert.equal(success, false);
+            const asAddress2 = Token.connect(address2);
+            await Token.transfer(address2.address, 2);
+            await asAddress2.transfer(address1.address, 4);
+            const balance = await Token.balanceOf(address1.address);
+            expect(balance.toNumber()).to.equal(4);
         });
     });
 })

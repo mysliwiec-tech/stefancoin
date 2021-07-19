@@ -1,26 +1,28 @@
-pragma solidity ^0.5.0;
+//SPDX-License-Identifier: Unlicense
+pragma solidity ^0.8.0;
 
-import "@openzeppelin/upgrades/contracts/Initializable.sol";
-import "@openzeppelin/contracts-ethereum-package/contracts/token/ERC20/ERC20.sol";
-import "@openzeppelin/contracts-ethereum-package/contracts/token/ERC20/ERC20Detailed.sol";
+import "hardhat/console.sol";
+
+import "@openzeppelin/contracts-upgradeable/token/ERC20/ERC20Upgradeable.sol";
+import "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
+
 import "./DateUtil.sol";
 
-contract StefanCoin is Initializable, ERC20, ERC20Detailed {
+contract StefanCoin is Initializable, ERC20Upgradeable {
 
     mapping(bytes32 => uint256) public spentVirtual;
-    uint256 public free_daily_virtuals;
+    uint256 public free_daily_virtuals = 3;
     mapping(string => address) public userToAddressMap; // TODO keep historical records (maybe trigger events for that)
 
-    function initialize(string memory name, string memory symbol, uint8 decimals, uint256 daily_virtuals) public initializer {
-        ERC20Detailed.initialize(name, symbol, decimals);
-        free_daily_virtuals = daily_virtuals;
+    function initialize() public initializer {
+        __ERC20_init("StefanCoin", "STF");
     }
 
-    function _transfer(address from, address to, uint256 value) internal {
+    function _transfer(address from, address to, uint256 value) override internal {
         require(from != to, "Cannot send to yourself! LOL");
 
         uint256 remainingVirtuals = remainingVirtuals(from);
-        require(value <= balanceOf(from)+remainingVirtuals, "No enough founds");
+        require(value <= balanceOf(from)+remainingVirtuals, "No enough funds");
 
         if(remainingVirtuals > value) {
             spentVirtual[addressDateHash(from)] += value;
@@ -33,7 +35,7 @@ contract StefanCoin is Initializable, ERC20, ERC20Detailed {
     }
 
     function addressDateHash(address addr) public view returns (bytes32) {
-        (uint256 year, uint256 month, uint256 day) = DateUtil.timestampToDate(now);
+        (uint256 year, uint256 month, uint256 day) = DateUtil.timestampToDate(block.timestamp);
         return keccak256(abi.encode(addr, year, month, day));
     }
 
